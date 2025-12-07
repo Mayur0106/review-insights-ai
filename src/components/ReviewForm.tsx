@@ -18,58 +18,35 @@ const ReviewForm = ({ onSuccess }: ReviewFormProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (rating === 0) {
       toast.error("Please select a star rating");
       return;
     }
-    
+
     if (!review.trim()) {
       toast.error("Please write a review");
       return;
     }
 
     setIsSubmitting(true);
-
     try {
-      // Generate AI response
-      const { data: responseData, error: responseError } = await supabase.functions.invoke(
-        "process-review",
-        { body: { review, rating, type: "response" } }
-      );
-      
-      if (responseError) throw responseError;
-      
-      // Generate AI summary
-      const { data: summaryData, error: summaryError } = await supabase.functions.invoke(
-        "process-review",
-        { body: { review, rating, type: "summary" } }
-      );
-      
-      if (summaryError) throw summaryError;
-
-      // Generate AI recommended actions
-      const { data: actionsData, error: actionsError } = await supabase.functions.invoke(
-        "process-review",
-        { body: { review, rating, type: "actions" } }
-      );
-      
-      if (actionsError) throw actionsError;
-
+      let temp = await callGemini(review + ' give me the AI Repopnse, AI Summary , and AI Recommended Actions in separate lines');
+      const aiResponse = temp.split("AI Response:")[1].split("AI Summary:")[0].trim();
+      const aiSummary = temp.split("AI Summary:")[1].split("AI Recommended Actions:")[0].trim();
+      const aiActions = temp.split("AI Recommended Actions:")[1].trim();
       // Store the review with AI data
       const { error: insertError } = await supabase.from("reviews").insert({
         rating,
         review: review.trim(),
-        ai_response: responseData?.result || null,
-        ai_summary: summaryData?.result || null,
-        ai_recommended_actions: actionsData?.result || null,
+        ai_response: aiResponse.replace(/\*\*/g, "").trim() || null,
+        ai_summary: aiSummary.replace(/\*\*/g, "").trim() || null,
+        ai_recommended_actions: aiActions.replace(/\*\*/g, "").trim() || null,
       });
 
       if (insertError) throw insertError;
-
       toast.success("Review submitted successfully!");
-      onSuccess(responseData?.result || "Thank you for your feedback!");
-      
+      onSuccess( aiResponse.replace(/\*\*/g, "").trim() || "Thank you for your feedback!");
     } catch (error: any) {
       console.error("Error submitting review:", error);
       toast.error(error.message || "Failed to submit review. Please try again.");
@@ -77,6 +54,27 @@ const ReviewForm = ({ onSuccess }: ReviewFormProps) => {
       setIsSubmitting(false);
     }
   };
+
+  async function callGemini(prompt) {
+    const apiKey = ''; 
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_googleAPI}`,  // REQUIRED!
+        },
+        body: JSON.stringify({
+          model: "gemini-2.5-flash-lite",
+          messages: [{ role: "user", content: prompt }],
+        }),
+      }
+    );
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content;
+  }
+
 
   return (
     <Card className="w-full max-w-lg shadow-glow border-0 bg-card/80 backdrop-blur-sm">
@@ -99,7 +97,7 @@ const ReviewForm = ({ onSuccess }: ReviewFormProps) => {
               <StarRating rating={rating} onRatingChange={setRating} />
             </div>
           </div>
-          
+
           <div className="space-y-3">
             <label htmlFor="review" className="block text-sm font-medium text-muted-foreground">
               Tell us more about your experience
@@ -117,8 +115,8 @@ const ReviewForm = ({ onSuccess }: ReviewFormProps) => {
             </p>
           </div>
 
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             className="w-full h-12 text-base font-semibold"
             disabled={isSubmitting}
           >
